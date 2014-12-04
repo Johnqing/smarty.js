@@ -71,7 +71,7 @@ var tags = {
 	'/block': {
 		type: 'function',
 		parse: function(options){
-			blocks[temp.name] = input.substring(temp.postion, options.postion);
+			blocks[temp.name] = input.substring(temp.index, options.index);
 			delete temp;
 		}
 	},
@@ -85,6 +85,14 @@ var tags = {
 	}
 };
 
+var _keyWordsMaps = {
+    '/block': {
+        type: 'text',
+        parse: function(){
+            return '\r\n';
+        }
+    }
+}
 
 /**
  * 解析需要的数据
@@ -112,13 +120,13 @@ function parseTagOpts(opts, name){
  * @param str
  * @returns {{tag: *, opts: {}}}
  */
-function parseParam(str, pos){
+function parseParam(str, index){
 	var s = str.replace(exports.left_delimiter, '').replace(exports.right_delimiter, '');
 	var tagArr = s.match(/^(.\w+)\W/);
 	var tagName = !tagArr ? s : tagArr[1];
 	var tag = tags[tagName];
 	var opts = !tagArr ? {} : parseTagOpts(tagArr.input, tagName);
-	opts.postion = !tagArr ?  pos : (pos + str.length);
+	opts.index = !tagArr ?  index : (index + str.length);
 
 	return {
 		tag: tag,
@@ -127,12 +135,16 @@ function parseParam(str, pos){
 	}
 }
 
+function parseTags(str){
+    var param = parseParam(str, 0);
+}
+
 /**
  * 解析tag
  * @param str
  */
-function parseTag(str, pos){
-	var param = parseParam(str, pos);
+function extendsTag(str, index){
+	var param = parseParam(str, index);
 	if(param.tag){
 		if(param.tag.type == 'function'){
 			param.tag.parse(param.opts)
@@ -146,13 +158,14 @@ function parseTag(str, pos){
 function replaceBlock(str){
 	var param = parseParam(str, 0);
 	var tagId= param.opts.name;
-
 	if(tagId){
 		if(blocks[tagId]){
 			return blocks[tagId];
 		}
 	}
-
+    var map = _keyWordsMaps[param.name];
+    // todo: 变量、条件语句等解析
+    return  map ? map.parse(str) : str;
 };
 
 
@@ -163,13 +176,13 @@ function replaceBlock(str){
 function findTags(str){
 	input = str.replace(/\r\n/g, '');
 	input.replace(tagsRegx, function(a, pos){
-		parseTag(a, pos);
+        extendsTag(a, pos);
 	});
-	_extends = _extends.replace(tagsRegx, function(a){
-		return replaceBlock(a) || '';
+    _extends = _extends.replace(/[\r|\n|\t]/g, '');
+    _extends = _extends.replace(tagsRegx, function(a){
+        return replaceBlock(a) || parseTags(a);
 	});
-
-	var sTmpl = 'var strArr=[]; strArr.push('+_extends+')return strArr.join("");';
+    var sTmpl = 'var strArr=[]; strArr.push("'+_extends+'");return strArr.join("");';
 	return sTmpl;
 }
 
@@ -186,13 +199,14 @@ var parse = exports.parse = function(str, options){
  * @type {Function}
  */
 var compile = exports.compile = function(str, options){
-	var fnStr = '(function(data){' +
-		parse(str, options)
-	+'})($data);';
-
-	var fn = new Function('$data', fnStr);
-
-	return function(locals){
+	var fnStr = parse(str, options);
+	var fn;
+    try{
+        fn = new Function('$data', fnStr);
+    }catch(err){
+        throw new Error(err);
+    }
+    return function(locals){
 		return fn(locals);
 	}
 }
