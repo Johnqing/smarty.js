@@ -8,9 +8,9 @@ var viewsDir;
  * 定界符
  * @type {string}
  */
-var left_delimiter = exports.left_delimiter = '{';
-var right_delimiter = exports.right_delimiter = '}';
-var auto_literal = exports.auto_literal = true;
+exports.left_delimiter = '{';
+exports.right_delimiter = '}';
+exports.auto_literal = true;
 
 /**
  * 运算符
@@ -55,29 +55,36 @@ var operators = {
  * @type {{}}
  */
 var cache = {};
+var blocks = {};
+var _extends = '';
+var temp = {};
+var input;
+var tagsRegx = new RegExp(exports.left_delimiter+'[\\s\\S]*?\\S'+exports.right_delimiter, 'g');
 
 var tags = {
+	'block': {
+		type: 'function',
+		parse: function(options){
+			temp = options || {};
+		}
+	},
+	'/block': {
+		type: 'function',
+		parse: function(options){
+			blocks[temp.name] = input.substring(temp.postion, options.postion);
+			delete temp;
+		}
+	},
 	'extends': {
 		type: 'function',
 		parse: function(options){
 			if(options.file){
-				return read(path.join(viewsDir, options.file)).toString();
+				_extends = read(path.join(viewsDir, options.file)).toString();
 			}
-	}
+		}
 	}
 };
 
-/**
- * 去除左右定界符
- * @param str
- * @returns {*}
- */
-function delLeftDelimiter(str){
-	return str.replace(exports.left_delimiter, '');
-}
-function delRightDelimiter(str){
-	return str.replace(exports.right_delimiter, '');
-}
 
 /**
  * 解析需要的数据
@@ -101,31 +108,69 @@ function parseTagOpts(opts, name){
 	return obj
 }
 /**
+ * 提取参数
+ * @param str
+ * @returns {{tag: *, opts: {}}}
+ */
+function parseParam(str, pos){
+	var s = str.replace(exports.left_delimiter, '').replace(exports.right_delimiter, '');
+	var tagArr = s.match(/^(.\w+)\W/);
+	var tagName = !tagArr ? s : tagArr[1];
+	var tag = tags[tagName];
+	var opts = !tagArr ? {} : parseTagOpts(tagArr.input, tagName);
+	opts.postion = !tagArr ?  pos : (pos + str.length);
+
+	return {
+		tag: tag,
+		name: tagName,
+		opts: opts
+	}
+}
+
+/**
  * 解析tag
  * @param str
  */
-function parseTag(str){
-	var tagArr = str.match(/^(.\w+)\W/);
-	var tag = tags[tagArr[1]];
-	var opts = parseTagOpts(tagArr.input, tagArr[1]);
-	if(tag){
-		if(tag.type == 'function'){
-			return tag.parse(opts);
+function parseTag(str, pos){
+	var param = parseParam(str, pos);
+	if(param.tag){
+		if(param.tag.type == 'function'){
+			param.tag.parse(param.opts)
 		}
 	}
 }
+/**
+ * 替换extends内的block
+ * @param str
+ */
+function replaceBlock(str){
+	var param = parseParam(str, 0);
+	var tagId= param.opts.name;
+
+	if(tagId){
+		if(blocks[tagId]){
+			return blocks[tagId];
+		}
+	}
+
+};
+
 
 /**
  * 解析语法
  * @param str
  */
 function findTags(str){
-	return str.replace(/\{%[\s\S]*?\S\%}/g, function(a){
-		a = delLeftDelimiter(a);
-		a = delRightDelimiter(a);
-		a = parseTag(a);
-		return a || '';
+	input = str.replace(/\r\n/g, '');
+	input.replace(tagsRegx, function(a, pos){
+		parseTag(a, pos);
 	});
+	_extends = _extends.replace(tagsRegx, function(a){
+		return replaceBlock(a) || '';
+	});
+
+	var sTmpl = 'var strArr=[]; strArr.push('+_extends+')return strArr.join("");';
+	return sTmpl;
 }
 
 /**
@@ -133,8 +178,7 @@ function findTags(str){
  * @type {Function}
  */
 var parse = exports.parse = function(str, options){
-	str = findTags(str, options);
-	console.log('parse',str);
+	return findTags(str, options);
 };
 
 /**
@@ -142,9 +186,14 @@ var parse = exports.parse = function(str, options){
  * @type {Function}
  */
 var compile = exports.compile = function(str, options){
-	parse(str, options);
+	var fnStr = '(function(data){' +
+		parse(str, options)
+	+'})($data);';
+
+	var fn = new Function('$data', fnStr);
+
 	return function(locals){
-		return locals;
+		return fn(locals);
 	}
 }
 /**
