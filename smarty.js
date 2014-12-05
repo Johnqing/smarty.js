@@ -103,7 +103,7 @@ function parseTags(source){
  * @returns {string}
  * @private
  */
-function _compile(source, options){
+exports._compile = function _compile(source, options){
 	var compileCache;
 	var openArr = source.split(exports.left_delimiter),
 		tempCode = '';
@@ -152,7 +152,7 @@ function _compile(source, options){
  * @type {Function}
  */
 var parse = exports.parse = function(str, options){
-	var sTmpl = 'var strArr=[]; '+_compile(str, options)+'return strArr.join("");';
+	var sTmpl = 'var strArr=[]; '+exports._compile(str, options)+'return strArr.join("");';
 	return sTmpl;
 };
 
@@ -161,7 +161,8 @@ var parse = exports.parse = function(str, options){
  * @type {Function}
  */
 var compile = exports.compile = function(str, options){
-	var fnStr = parse(str, options);
+	var fnStr = exports.parse(str, options);
+	blocks = {};
 	var fn;
 	try{
 		fn = new Function('$data', fnStr);
@@ -169,7 +170,7 @@ var compile = exports.compile = function(str, options){
 		throw new Error(err);
 	}
 	return function(locals){
-		return fn(locals);
+		return fn.call(this, locals);
 	}
 }
 /**
@@ -187,7 +188,7 @@ var render = exports.render = function(str, options){
 			throw new Error('"cache" option requires "filename".');
 		}
 	} else {
-		fn = compile(str, options);
+		fn = exports.compile(str, options);
 	}
 	options.__proto__ = options.locals;
 	return fn.call(options.scope, options);
@@ -208,7 +209,6 @@ exports.renderFile = function(path, options, fn){
 
 	var str;
 	options.filename = path;
-
 	try{
 		str = options.cache
 			? cache[key] || (cache[key] = read(path, 'utf8'))
@@ -218,6 +218,6 @@ exports.renderFile = function(path, options, fn){
 		return;
 	}
 
-	fn(null, render(str, options));
+	fn(null, exports.render(str, options));
 };
 exports.__express = exports.renderFile;
