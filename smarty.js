@@ -188,9 +188,9 @@ function findTags(str){
 	_extends = _extends.replace(tagsRegx, function(a){
 		return replaceBlock(a) || parseTags(a);
 	});
+	!_extends && (_extends = input);
 	_extends = _extends.replace(/'/g, '"');
 	var sTmpl = 'var strArr=[]; strArr.push(\''+_extends+'\');return strArr.join("");';
-	console.log(sTmpl);
 	return sTmpl;
 }
 
