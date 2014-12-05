@@ -2,14 +2,6 @@ var fs = require('fs');
 var path = require('path');
 var read = fs.readFileSync;
 
-var StringH = {
-	encode4HtmlValue: function(s) {
-		return s.replace(/"/g, "&quot;").replace(/'/g, "&#039;");
-	}
-};
-
-var viewsDir;
-
 /**
  * 定界符
  * @type {string}
@@ -62,44 +54,15 @@ var operators = {
  */
 var cache = {};
 var blocks = {};
-var _extends = '';
-var temp = {};
-var input;
-var tagsRegx = new RegExp(exports.left_delimiter+'[\\s\\S]*?\\S'+exports.right_delimiter, 'g');
 
 var tags = {
 	'block': {
 		type: 'function',
-		parse: function(options){
-			temp = options || {};
-		}
-	},
-	'/block': {
-		type: 'function',
-		parse: function(options){
-			blocks[temp.name] = input.substring(temp.index, options.index);
-			delete temp;
-		}
-	},
-	'extends': {
-		type: 'function',
-		parse: function(options){
-			if(options.file){
-				_extends = read(path.join(viewsDir, options.file)).toString();
-			}
+		parse: function(options, str){
+			blocks[options.name] = str;
 		}
 	}
 };
-
-var _keyWordsMaps = {
-	'/block': {
-		type: 'text',
-		parse: function(){
-			return '\r\n';
-		}
-	}
-}
-
 /**
  * 解析需要的数据
  * @param opts
@@ -122,76 +85,66 @@ function parseTagOpts(opts, name){
 	return obj
 }
 /**
- * 提取参数
- * @param str
- * @returns {{tag: *, opts: {}}}
+ * html处理
+ * @param source
+ * @returns {string}
  */
-function parseParam(str, index){
-	var s = str.replace(exports.left_delimiter, '').replace(exports.right_delimiter, '');
-	var tagArr = s.match(/^(.\w+)\W/);
-	var tagName = !tagArr ? s : tagArr[1];
-	var tag = tags[tagName];
-	var opts = !tagArr ? {} : parseTagOpts(tagArr.input, tagName);
-	opts.index = !tagArr ?  index : (index + str.length);
-
-	return {
-		tag: tag,
-		name: tagName,
-		opts: opts
-	}
-}
-
-function parseTags(str){
-	var param = parseParam(str, 0);
+function parseTags(source){
+	source = source.replace(/('|"|\\)/g, '\\$1')
+		.replace(/\r/g, '\\r')
+		.replace(/\n/g, '\\n');
+	source = 'strArr.push("' + source + '");';
+	return source + '\n';
 }
 
 /**
- * 解析tag
- * @param str
+ * 模板编译
+ * @param source
+ * @returns {string}
+ * @private
  */
-function extendsTag(str, index){
-	var param = parseParam(str, index);
-	if(param.tag){
-		if(param.tag.type == 'function'){
-			param.tag.parse(param.opts)
+function _compile(source, options){
+	var compileCache;
+	var openArr = source.split(exports.left_delimiter),
+		tempCode = '';
+	openArr.forEach(function(code){
+		var codeArr = code.split(exports.right_delimiter);
+		var codeTag = codeArr[0];
+		// html
+		if(codeArr.length === 1)
+			return tempCode += parseTags(codeTag);
+		// smarty tag
+		var tagName = codeTag.match(/^(.\w+)\W/);
+		if(tagName){
+			var opts = parseTagOpts(tagName.input, tagName[1]);
+			var tag = tags[tagName[1]];
+
+			if(tagName[1] == 'extends'){
+				compileCache = read(path.join(options.settings.views, opts.file)).toString();
+				return;
+			}
+
+			if(tagName[1] == 'block' && blocks[opts.name]){
+				tempCode += parseTags(blocks[opts.name]);
+				return;
+			}
+
+			if(tag){
+				if(tag.type == 'function'){
+					tag.parse(opts, codeArr[1]);
+					return;
+				}
+			}
+
+		} else if(codeArr[1]) {
+			tempCode += parseTags(codeArr[1]);
+			return;
 		}
-	}
-}
-/**
- * 替换extends内的block
- * @param str
- */
-function replaceBlock(str){
-	var param = parseParam(str, 0);
-	var tagId= param.opts.name;
-	if(tagId){
-		if(blocks[tagId]){
-			return blocks[tagId];
-		}
-	}
-	var map = _keyWordsMaps[param.name];
-	// todo: 变量、条件语句等解析
-	return  map ? map.parse(str) : str;
-};
-
-
-/**
- * 解析语法
- * @param str
- */
-function findTags(str){
-	input = str.replace(/[\r|\n|\t]/g, '');
-	input.replace(tagsRegx, function(a, pos){
-		extendsTag(a, pos);
 	});
-	_extends = _extends.replace(/[\r|\n|\t]/g, '');
-	_extends = _extends.replace(tagsRegx, function(a){
-		return replaceBlock(a) || parseTags(a);
-	});
-	!_extends && (_extends = input);
-	_extends = _extends.replace(/'/g, '"');
-	var sTmpl = 'var strArr=[]; strArr.push(\''+_extends+'\');return strArr.join("");';
-	return sTmpl;
+	if(compileCache){
+		tempCode = _compile(compileCache);
+	}
+	return tempCode;
 }
 
 /**
@@ -199,7 +152,8 @@ function findTags(str){
  * @type {Function}
  */
 var parse = exports.parse = function(str, options){
-	return findTags(str, options);
+	var sTmpl = 'var strArr=[]; '+_compile(str, options)+'return strArr.join("");';
+	return sTmpl;
 };
 
 /**
@@ -254,8 +208,7 @@ exports.renderFile = function(path, options, fn){
 
 	var str;
 	options.filename = path;
-	// 设置模板文件目录
-	viewsDir = options.settings.views;
+
 	try{
 		str = options.cache
 			? cache[key] || (cache[key] = read(path, 'utf8'))
