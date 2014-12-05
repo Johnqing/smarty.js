@@ -2,6 +2,12 @@ var fs = require('fs');
 var path = require('path');
 var read = fs.readFileSync;
 
+var StringH = {
+	encode4HtmlValue: function(s) {
+		return s.replace(/"/g, "&quot;").replace(/'/g, "&#039;");
+	}
+};
+
 var viewsDir;
 
 /**
@@ -86,12 +92,12 @@ var tags = {
 };
 
 var _keyWordsMaps = {
-    '/block': {
-        type: 'text',
-        parse: function(){
-            return '\r\n';
-        }
-    }
+	'/block': {
+		type: 'text',
+		parse: function(){
+			return '\r\n';
+		}
+	}
 }
 
 /**
@@ -136,7 +142,7 @@ function parseParam(str, index){
 }
 
 function parseTags(str){
-    var param = parseParam(str, 0);
+	var param = parseParam(str, 0);
 }
 
 /**
@@ -163,9 +169,9 @@ function replaceBlock(str){
 			return blocks[tagId];
 		}
 	}
-    var map = _keyWordsMaps[param.name];
-    // todo: 变量、条件语句等解析
-    return  map ? map.parse(str) : str;
+	var map = _keyWordsMaps[param.name];
+	// todo: 变量、条件语句等解析
+	return  map ? map.parse(str) : str;
 };
 
 
@@ -174,15 +180,17 @@ function replaceBlock(str){
  * @param str
  */
 function findTags(str){
-	input = str.replace(/\r\n/g, '');
+	input = str.replace(/[\r|\n|\t]/g, '');
 	input.replace(tagsRegx, function(a, pos){
-        extendsTag(a, pos);
+		extendsTag(a, pos);
 	});
-    _extends = _extends.replace(/[\r|\n|\t]/g, '');
-    _extends = _extends.replace(tagsRegx, function(a){
-        return replaceBlock(a) || parseTags(a);
+	_extends = _extends.replace(/[\r|\n|\t]/g, '');
+	_extends = _extends.replace(tagsRegx, function(a){
+		return replaceBlock(a) || parseTags(a);
 	});
-    var sTmpl = 'var strArr=[]; strArr.push("'+_extends+'");return strArr.join("");';
+	_extends = _extends.replace(/'/g, '"');
+	var sTmpl = 'var strArr=[]; strArr.push(\''+_extends+'\');return strArr.join("");';
+	console.log(sTmpl);
 	return sTmpl;
 }
 
@@ -201,12 +209,12 @@ var parse = exports.parse = function(str, options){
 var compile = exports.compile = function(str, options){
 	var fnStr = parse(str, options);
 	var fn;
-    try{
-        fn = new Function('$data', fnStr);
-    }catch(err){
-        throw new Error(err);
-    }
-    return function(locals){
+	try{
+		fn = new Function('$data', fnStr);
+	}catch(err){
+		throw new Error(err);
+	}
+	return function(locals){
 		return fn(locals);
 	}
 }
