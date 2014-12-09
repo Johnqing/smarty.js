@@ -10,6 +10,7 @@ exports.left_delimiter = '{';
 exports.right_delimiter = '}';
 exports.auto_literal = true;
 
+var dataName = '$data';
 /**
  * 运算符
  * @type {{eq: string, ne: string, neq: string, gt: string, lt: string, ge: string, gte: string, le: string, lte: string, and: string, or: string, mod: string, ==: string, ===: string, !=: string, >: string, <: string, >=: string, <=: string, !: string, %: string, (: string, ): string, 0: number, false: boolean, null: null, undefined: null}}
@@ -56,10 +57,22 @@ var cache = {};
 var blocks = {};
 
 var tags = {
-	'block': {
+	'if': {
 		type: 'function',
-		parse: function(options, str){
-			blocks[options.name] = str;
+		parse: function(options){
+			return '");if('+options+'){strArr.push("'
+		}
+	},
+	'elseif': {
+		type: 'function',
+		parse: function(options){
+			return '");} else if(' +options+ '){strArr.push("';
+		}
+	},
+	'/if': {
+		type: 'function',
+		parse: function(options){
+			return '");};strArr.push("'
 		}
 	}
 };
@@ -107,14 +120,30 @@ exports._compile = function _compile(source, options){
 	var compileCache;
 	var openArr = source.split(exports.left_delimiter),
 		tempCode = '';
+
+	var blockName;
+
 	openArr.forEach(function(code){
+
+		function getTagStr(t, tn){
+			codeTag = codeTag.replace(/\$/g, dataName + '.');
+			var text = t.parse(codeTag.replace(tn, ''));
+			if(blockName){
+				blocks[blockName] += text + html;
+			}else{
+				tempCode += parseTags(text);
+			}
+		}
+
 		var codeArr = code.split(exports.right_delimiter);
 		var codeTag = codeArr[0];
+		var html = codeArr[1];
 		// html
 		if(codeArr.length === 1)
 			return tempCode += parseTags(codeTag);
 		// smarty tag
 		var tagName = codeTag.match(/^(.\w+)\W/);
+
 		if(tagName){
 			var opts = parseTagOpts(tagName.input, tagName[1]);
 			var tag = tags[tagName[1]];
@@ -129,17 +158,38 @@ exports._compile = function _compile(source, options){
 				return;
 			}
 
-			if(tag){
-				if(tag.type == 'function'){
-					tag.parse(opts, codeArr[1]);
-					return;
-				}
+			if(tagName[1] == 'block') {
+				blockName = opts.name;
+				blocks[blockName] = html;
+				return;
 			}
 
-		} else if(codeArr[1]) {
-			tempCode += parseTags(codeArr[1]);
+			if(tagName[1] == '/block'){
+				blockName = '';
+			}
+
+			if(tagName[1] == 'include'){
+				var text = read(path.join(options.settings.views, opts.file)).toString();
+				if(blockName){
+					blocks[blockName] += text + html;
+				}else{
+					tempCode += parseTags(text);
+				}
+				return;
+			}
+
+			if(tag){
+				getTagStr(tag, tagName[1]);
+			}
+
+		} else if(html) {
+			if(tags[codeTag]){
+				getTagStr(tags[codeTag], codeTag);
+			}
+			tempCode += parseTags(html);
 			return;
 		}
+
 	});
 	if(compileCache){
 		tempCode = _compile(compileCache);
@@ -165,7 +215,7 @@ var compile = exports.compile = function(str, options){
 	blocks = {};
 	var fn;
 	try{
-		fn = new Function('$data', fnStr);
+		fn = new Function(dataName, fnStr);
 	}catch(err){
 		throw new Error(err);
 	}
